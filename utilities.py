@@ -15,12 +15,8 @@ import threading
 import math
 import sys
 import pwd
+import ConfigParser
 from operator import itemgetter
-# from hiero.ui.nuke_bridge.nukestudio import frameServer
-
-# def listConnectedWorkers():
-#     l_workers = [worker.address for worker in frameServer.getStatus(1).workerStatus]
-#     nuke.message('\n'.join(l_workers))
 
 def quickLabel():
     sel = nuke.selectedNodes()[0]
@@ -30,16 +26,15 @@ def quickLabel():
 def getPixDir():
     script_name = nuke.root().knob('name').value()
     script_dir = os.path.dirname(script_name)
-    pix = '/'.join(script_dir.split('/')[0:-1]) + "/pix/plates"
+    pix = os.path.join(os.path.dirname(script_dir), "pix", "plates")
     return (pix)
 
 
 def getRenderDir():
     script_name = nuke.root().knob('name').value()
     script_dir = os.path.dirname(script_name)
-    pix = '/'.join(script_dir.split('/')[0:-1]) + "/pix/comp"
+    pix = os.path.join(os.path.dirname(script_dir), "pix", "comp")
     return (pix)
-
 
 def copyReadToShot():
     s = nuke.selectedNodes()
@@ -106,10 +101,6 @@ def copyFiles(render_path, exr_dest_fulldir):
             nuke.executeInMainThread(nuke.message, args=("Copy Cancelled!"))
             break;
         task.setProgress(float(count) / float(len(fileList)))
-
-
-show_luts = {'zmonolith': 'AlexaV3_K1S1_LogC2Video_EE_davinci3d_Profile_To_Rec709_2-4_G1_Og1_P1_Lum.cube',
-             'gastown': 'AlexaV3_K1S1_LogC2Video_Rec709_EE_davinci3d.cube'}
 
 ## makeSad() tells you how many roto/paint layers you have.
 def makeSad():
@@ -225,6 +216,8 @@ def make_dir_path():
 
 
 # reveals the currently selected read or write node in the finder
+# Tested and functional in Linux, 2016-10-01
+# Not sure about Windows.
 
 def reveal_in_finder():
     sel = None
@@ -366,9 +359,13 @@ def shot_from_script():
 
 
 def shot_from_nuke_path(str_path):
+    config = ConfigParser.ConfigParser()
+    config.read(os.environ['IH_SHOW_CFG_PATH'])
+    cfg_shot_regexp = config.get(os.environ['IH_SHOW_CODE'], 'shot_regexp')
+
     rval = ""
-    lst_path = str_path.split('/')
-    re_pattern = r'^[A-Z]{3}[0-9]{4}$'
+    lst_path = str_path.split(os.path.sep)
+    re_pattern = r'^%s$'%cfg_shot_regexp
     for path_component in lst_path:
         mo = re.search(re_pattern, path_component)
         if not mo == None:
@@ -377,10 +374,13 @@ def shot_from_nuke_path(str_path):
 
 
 def cdl_file_from_nuke_path(str_path):
+    config = ConfigParser.ConfigParser()
+    config.read(os.environ['IH_SHOW_CFG_PATH'])
+    cfg_shot_regexp = config.get(os.environ['IH_SHOW_CODE'], 'shot_regexp')
     rval = ""
     shot = shot_from_nuke_path(str_path)
-    lst_path = str_path.split('/')
-    re_pattern = r'^[A-Z]{2}[0-9]{4}$'
+    lst_path = str_path.split(os.path.sep)
+    re_pattern = r'^%s$'%cfg_shot_regexp
     path_idx = 0
     for path_component in lst_path:
         path_idx += 1
@@ -389,580 +389,34 @@ def cdl_file_from_nuke_path(str_path):
             break
     return_path_lst = lst_path[0:path_idx]
     return_path_lst.extend(['data', 'cdl', '%s.cdl' % shot])
-    rval = '/'.join(return_path_lst)
-    if sys.platform == "win32":
-        if "/Volumes/raid_vol01" in rval:
-            rval = rval.replace("/Volumes/raid_vol01", "Y:")
+    rval = os.path.join(return_path_lst)
     return rval
 
 
 def get_show_lut(str_path):
+    config = ConfigParser.ConfigParser()
+    config.read(os.environ['IH_SHOW_CFG_PATH'])
+    cfg_lut = config.get(os.environ['IH_SHOW_CODE'], 'lut')
+
     rval = ""
-    lst_path = str_path.split('/')
-    re_pattern = r'^inhouse$'
-    path_idx = 0
-    for path_component in lst_path:
-        path_idx += 1
-        mo = re.search(re_pattern, path_component)
-        if not mo == None:
-            break
-    return_path_lst = lst_path[0:path_idx]
-    return_path_lst.extend([lst_path[path_idx], 'SHARED', 'lut', show_luts[lst_path[path_idx]]])
-    rval = '/'.join(return_path_lst)
-    if sys.platform == "win32":
-        if "/Volumes/raid_vol01" in rval:
-            rval = rval.replace("/Volumes/raid_vol01", "Y:")
+    s_show_root = os.environ['IH_SHOW_ROOT']
+    rval = os.path.join(s_show_root, "SHARED", "lut", cfg_lut)
     return rval
 
-
-def get_delivery_directory(str_path):
-    calc_folder = ""
-    lst_path = str_path.split('/')
-    re_pattern = r'^inhouse$'
-    path_idx = 0
-    for path_component in lst_path:
-        path_idx += 1
-        mo = re.search(re_pattern, path_component)
-        if not mo == None:
-            break
-    return_path_lst = lst_path[0:path_idx]
-    return_path_lst.extend([lst_path[path_idx], '..', 'from_inhouse'])
-    delivery_folder = os.path.normpath(os.path.sep.join(return_path_lst))
-    tday = datetime.date.today().strftime('%Y%m%d')
-    matching_folders = glob.glob(os.path.join(delivery_folder, "%s_*" % tday))
-    noxl = ""
-    max_dir = 0
-    if len(matching_folders) == 0:
-        calc_folder = os.path.join(delivery_folder, "%s_1" % tday)
-    else:
-        for suspect_folder in matching_folders:
-            csv_spreadsheet = glob.glob(os.path.join(suspect_folder, "*.csv"))
-            excel_spreadsheet = glob.glob(os.path.join(suspect_folder, "*.xls*"))
-            if len(excel_spreadsheet) == 0 and len(csv_spreadsheet) == 0:
-                noxl = suspect_folder
-            else:
-                dir_number = int(os.path.basename(suspect_folder).split('_')[-1])
-                if dir_number > max_dir:
-                    max_dir = dir_number
-        if noxl != "":
-            calc_folder = noxl
-        else:
-            calc_folder = os.path.join(delivery_folder, "%s_%d" % (tday, max_dir + 1))
-    if sys.platform == "win32":
-        if "/Volumes/raid_vol01" in calc_folder:
-            calc_folder = calc_folder.replace("/Volumes/raid_vol01", "Y:")
-    return calc_folder
-
-
-# def send_for_review(cc=True, current_version_notes=None, prev_version_number=None, prev_version_notes=None, method_hours=0.0, b_method_qt=True, b_method_dpx=False, b_method_exr=False):
-#     oglist = []
-# 
-# 
-#     for nd in nuke.selectedNodes():
-#         nd.knob('selected').setValue(False)
-#         oglist.append(nd)
-# 
-#     start_frame = nuke.root().knob('first_frame').value()
-#     end_frame = nuke.root().knob('last_frame').value()
-# 
-#     for und in oglist:
-#         created_list = []
-#         write_list = []
-#         render_path = ""
-#         md_host_name = None
-#         first_frame_tc_str = ""
-#         last_frame_tc_str = ""
-#         first_frame_tc = None
-#         last_frame_tc = None
-#         slate_frame_tc = None
-# 
-#         if und.Class() == "Read":
-#             print "INFO: Located Read Node."
-#             und.knob('selected').setValue(True)
-#             render_path = und.knob('file').value()
-#             start_frame = und.knob('first').value()
-#             end_frame = und.knob('last').value()
-#             md_host_name = und.metadata('exr/nuke/input/hostname')
-#             startNode = und
-#         elif und.Class() == "Write":
-#             print "INFO: Located Write Node."
-#             und.knob('selected').setValue(True)
-#             new_read = read_from_write()
-#             render_path = new_read.knob('file').value()
-#             start_frame = new_read.knob('first').value()
-#             end_frame = new_read.knob('last').value()
-#             md_host_name = new_read.metadata('exr/nuke/input/hostname')
-#             created_list.append(new_read)
-#             startNode = new_read
-#         else:
-#             print "Please select either a Read or Write node"
-#             break
-#         if sys.platform == "win32":
-#             if "/Volumes/raid_vol01" in render_path:
-#                 render_path = render_path.replace("/Volumes/raid_vol01", "Y:")
-#         # no longer uses timecode information from metadata. hardcoded from start frame.
-#         # first_frame_tc_str = startNode.metadata("input/timecode", float(start_frame))
-#         # last_frame_tc_str = startNode.metadata("input/timecode", float(end_frame))
-#         first_frame_tc_str = str(TimeCode(start_frame))
-#         last_frame_tc_str = str(TimeCode(end_frame))
-#         if first_frame_tc_str == None:
-#             first_frame_tc = TimeCode(start_frame)
-#         else:
-#             first_frame_tc = TimeCode(first_frame_tc_str)
-#         slate_frame_tc = first_frame_tc - 1
-#         if last_frame_tc_str == None:
-#             last_frame_tc = TimeCode(end_frame) + 1
-#         else:
-#             last_frame_tc = TimeCode(last_frame_tc_str) + 1
-#         artist_name = user_full_name(md_host_name)
-# 
-#         # create the panel to ask for notes
-#         def_note_text = "For review"
-#         path_dir_name = os.path.dirname(render_path)
-#         version_int = int(path_dir_name.split("_v")[-1])
-#         if version_int == 1:
-#             def_note_text = "For temp, comp first look."
-#         prev_version_list = []
-#         for pv in range(1, version_int):
-#             pv_path = "%s_v%03d" % ("_v".join(path_dir_name.split("_v")[0:-1]), pv)
-#             if os.path.exists(pv_path):
-#                 print "INFO: Located previous version: %s" % pv_path
-#                 prev_version_list.append("v%03d" % pv)
-# 
-#         b_execute_overall = False
-# 
-#         if current_version_notes is not None:
-#             cvn_txt = current_version_notes
-#             pvns_txt = prev_version_number
-#             pvns_notes_txt = prev_version_notes
-#             exr_delivery = b_method_exr
-#             dpx_delivery = b_method_dpx
-#             qt_delivery = b_method_qt
-#             hours = method_hours
-#             b_execute_overall = True
-#         else:
-#             pnl = NotesPanel()
-#             pnl.knobs()['cvn_'].setValue(def_note_text)
-#             if len(prev_version_list) == 0:
-#                 pnl.knobs()['pvns_'].setValues(['N/A'])
-#                 pnl.knobs()['pvns_notes_'].setValue('N/A')
-#             else:
-#                 pnl.knobs()['pvns_'].setValues(prev_version_list)
-#                 pnl.knobs()['pvns_notes_'].setValue('')
-#             if pnl.showModalDialog():
-#                 cvn_txt = pnl.knobs()['cvn_'].value()
-#                 pvns_txt = pnl.knobs()['pvns_'].value()
-#                 pvns_notes_txt = pnl.knobs()['pvns_notes_'].value()
-#                 exr_delivery = pnl.knobs()['exr_'].value()
-#                 dpx_delivery = pnl.knobs()['dpx_'].value()
-#                 qt_delivery = pnl.knobs()['qt_'].value()
-#                 hours = pnl.knobs()['hours_'].value()
-#                 b_execute_overall = True
-# 
-#         if b_execute_overall:
-# 
-#             qtmov_filepath = '.'.join([os.path.splitext(render_path)[0].split('.')[0], "mov"])
-#             xml_filepath = '.'.join([os.path.splitext(render_path)[0].split('.')[0], "xml"])
-# 
-#             suspected_shot = shot_from_nuke_path(render_path)
-#             print "INFO: Located shot: %s" % suspected_shot
-#             cdl_file_path = cdl_file_from_nuke_path(render_path)
-# 
-#             print "INFO: Likely CDL file for shot: %s" % cdl_file_path
-# 
-#             if qt_delivery:
-#                 tc_nd = nuke.nodes.AddTimeCode()
-#                 tc_nd.knob('startcode').setValue(str(slate_frame_tc))
-#                 tc_nd.knob('metafps').setValue(False)
-#                 tc_nd.knob('frame').setValue(int(start_frame - 1))
-#                 tc_nd.knob('useFrame').setValue(True)
-#                 created_list.append(tc_nd)
-#                 tc_nd.connectInput(0,startNode)
-# 
-#                 slate_nd= nuke.nodes.ML_SlateOnly()
-#                 slate_nd.knob('message_1').setValue(artist_name)
-#                 slate_nd.knob('message').setValue(cvn_txt)
-#                 slate_nd.knob('first_frame').setValue(start_frame)
-#                 slate_nd.knob('last_frame').setValue(end_frame)
-# 
-#                 slate_nd.connectInput(0,tc_nd)
-#                 created_list.append(slate_nd)
-# 
-#                 #create the transform nodes but dont connect them yet.
-#                 xf_nd = nuke.nodes.Transform()
-#                 xf_nd.knob('scale').setValue(.945)
-#                 if not cc:
-#                     xf_nd.knob('scale').setValue(1)
-#                 xf_nd.knob('center').setValue(1078,0)
-#                 xf_nd.knob('center').setValue(555,1)
-#                 xf_nd.knob('filter').setValue('Lanczos4')
-#                 created_list.append(xf_nd)
-# 
-#                 refhd_nd = nuke.nodes.Reformat()
-#                 refhd_nd.knob('format').setValue('HD (.hd)')
-#                 refhd_nd.knob('resize').setValue('none')
-#                 refhd_nd.knob('filter').setValue('Lanczos4')
-#                 created_list.append(refhd_nd)
-#                 refhd_nd.connectInput(0,xf_nd)
-# 
-#                 crop_nd = nuke.nodes.Crop()
-#                 crop_nd.knob('box').setX(0)
-#                 crop_nd.knob('box').setY(138)
-#                 crop_nd.knob('box').setR(1920)
-#                 crop_nd.knob('box').setT(942)
-#                 crop_nd.connectInput(0,refhd_nd)
-#                 created_list.append(crop_nd)
-# 
-# 
-#                 burn_nd= nuke.nodes.ML_Burnin()
-#                 burn_nd.knob('message_1').setValue(artist_name)
-#                 burn_nd.knob('message').setValue(cvn_txt)
-#                 burn_nd.knob('first_frame').setValue(start_frame)
-#                 burn_nd.knob('last_frame').setValue(end_frame)
-#                 burn_nd.connectInput(0,crop_nd)
-#                 created_list.append(burn_nd)
-# 
-# 
-#     # now we go back to alexalog to do the transforms
-#                 csp_nd = nuke.nodes.Colorspace()
-#                 csp_nd.knob('colorspace_out').setValue("AlexaV3LogC")
-#                 created_list.append(csp_nd)
-#                 csp_nd.connectInput(0,slate_nd)
-# 
-#                 xf_nd.connectInput(0,csp_nd)
-# 
-# 
-#                 if cc:
-#                     if os.path.exists(cdl_file_path):
-#                         ocio_cdl_nd = nuke.nodes.OCIOCDLTransform()
-#                         ocio_cdl_nd.knob('read_from_file').setValue(True)
-#                         ocio_cdl_nd.knob('file').setValue(cdl_file_path)
-#                         ocio_cdl_nd.connectInput(0,burn_nd)
-#                         created_list.append(ocio_cdl_nd)
-#                     else:
-#                         print "WARNING: Unable to locate CDL File: %s" % cdl_file_path
-#                         nuke.message("Unable to locate CDL file.\nPipeline CDL File Path:\n%s" % cdl_file_path)
-# 
-#                     threedlut_path = get_show_lut(render_path)
-#                     vfield_nd = nuke.nodes.Vectorfield()
-#                     vfield_nd.knob('vfield_file').setValue(threedlut_path)
-#                     vfield_nd.connectInput(0,ocio_cdl_nd)
-#                     created_list.append(vfield_nd)
-# 
-# 
-# 
-#                     cspi_nd = nuke.nodes.Colorspace()
-#                     cspi_nd.knob('colorspace_in').setValue("rec709")
-#                     cspi_nd.connectInput(0,vfield_nd)
-# 
-#                     created_list.append(cspi_nd)
-#                 else:
-#                     cspi_nd = nuke.nodes.Colorspace()
-#                     cspi_nd.knob('colorspace_in').setValue("AlexaV3LogC")
-#                     cspi_nd.connectInput(0,burn_nd)
-# 
-#                     created_list.append(cspi_nd)
-# 
-# 
-# 
-# 
-# 
-#                 wri_nd = nuke.nodes.Write()
-#                 wri_nd.connectInput(0,cspi_nd)
-#                 wri_nd.knob('file').setValue(qtmov_filepath)
-#                 wri_nd.knob('file_type').setValue('mov')
-#                 wri_nd.knob('colorspace').setValue('rec709')
-#                 wri_nd.knob('codec').setValue('AVdn')
-#                 if nuke.NUKE_VERSION_MAJOR <= 8:
-#                     wri_nd.knob('settings').setValue(
-#                         '000000000000000000000000000001d27365616e000000010000000100000000000001be76696465000000010000000f00000000000000227370746c0000000100000000000000004156646e00000000002000000200000000207470726c000000010000000000000000000000000017fae100000000000000246472617400000001000000000000000000000000000000530000010000000100000000156d70736f00000001000000000000000000000000186d66726100000001000000000000000000000000000000187073667200000001000000000000000000000000000000156266726100000001000000000000000000000000166d70657300000001000000000000000000000000002868617264000000010000000000000000000000000000000000000000000000000000000000000016656e647300000001000000000000000000000000001663666c67000000010000000000000000004400000018636d66720000000100000000000000004156494400000014636c757400000001000000000000000000000038636465630000000100000000000000004156494400000001000000020000000000000010000000030000000000000000000000000000001c766572730000000100000000000000000003001c00010000')
-#                     wri_nd.knob('Flatten').setValue(False)
-#                     wri_nd.knob('ycbcr_matrix_type').setValue('Rec 709')
-#                     wri_nd.knob('pixel_format').setValue(4)
-#                     wri_nd.knob('write_nclc').setValue(False)
-#                     wri_nd.knob('write_gamma').setValue(False)
-#                     wri_nd.knob('writeTimeCode').setValue(True)
-#                 else:
-#                     # MUST use mov64 encoder on linux
-#                     if sys.platform == "linux2":
-#                         wri_nd.knob('mov64_format').setValue('mov (QuickTime / MOV)')
-#                         wri_nd.knob('mov64_codec').setValue('AVdn')
-#                         wri_nd.knob('mov64_dnxhd_codec_profile').setValue('DNxHD 422 8-bit 145Mbit')
-#                         wri_nd.knob('mov64_fps').setValue(24)
-#                         wri_nd.knob('mov64_write_timecode').setValue(True)
-#                         wri_nd.knob('mov64_advanced').setValue(True)
-#                         wri_nd.knob('mov64_dnxhd_encode_video_range').setValue("Video Range")
-#                         wri_nd.knob('mov64_bitrate').setValue(20000)
-#                         wri_nd.knob('mov64_bitrate_tolerance').setValue(40000000)
-#                         wri_nd.knob('mov64_quality_min').setValue(2)
-#                         wri_nd.knob('mov64_quality_max').setValue(31)
-#                         wri_nd.knob('mov64_gop_size').setValue(12)
-#                         wri_nd.knob('mov64_b_frames').setValue(0)
-#                         wri_nd.knob('mov64_write_nclc').setValue(False)
-#                     else:
-#                         wri_nd.knob('meta_codec').setValue('AVdn')
-#                         wri_nd.knob('meta_encoder').setValue('mov32')
-#                         wri_nd.knob('mov32_codec').setValue('AVdn')
-#                         wri_nd.knob('mov32_fps').setValue(24)
-#                         wri_nd.knob('mov32_settings').setValue(
-#                             '000000000000000000000000000001d27365616e000000010000000100000000000001be76696465000000010000000f00000000000000227370746c0000000100000000000000004156646e000000000020000003ff000000207470726c000000010000000000000000000000000017f9db00000000000000246472617400000001000000000000000000000000000000530000010000000100000000156d70736f00000001000000000000000000000000186d66726100000001000000000000000000000000000000187073667200000001000000000000000000000000000000156266726100000001000000000000000000000000166d70657300000001000000000000000000000000002868617264000000010000000000000000000000000000000000000000000000000000000000000016656e647300000001000000000000000000000000001663666c67000000010000000000000000004400000018636d66720000000100000000000000004156494400000014636c757400000001000000000000000000000038636465630000000100000000000000004156494400000001000000020000000000000010000000030000000000000000000000000000001c766572730000000100000000000000000003001c00010000')
-#                         wri_nd.knob('mov32_flatten').setValue(False)
-#                         wri_nd.knob('mov32_ycbcr_matrix_type').setValue('Rec 709')
-#                         wri_nd.knob('mov32_pixel_format').setValue(4)
-#                         wri_nd.knob('mov32_write_nclc').setValue(False)
-#                         wri_nd.knob('mov32_write_gamma').setValue(False)
-#                         wri_nd.knob('mov32_write_timecode').setValue(True)
-#                         wri_nd.knob('mov64_codec').setValue('AVdn')
-#                         wri_nd.knob('mov64_dnxhd_codec_profile').setValue('DNxHD 422 8-bit 145Mbit')
-#                         wri_nd.knob('mov64_fps').setValue(24)
-#                         wri_nd.knob('mov64_write_timecode').setValue(True)
-#                         wri_nd.knob('mov64_advanced').setValue(True)
-#                         wri_nd.knob('mov64_bitrate').setValue(20000)
-#                         wri_nd.knob('mov64_bitrate_tolerance').setValue(40000000)
-#                         wri_nd.knob('mov64_quality_min').setValue(2)
-#                         wri_nd.knob('mov64_quality_max').setValue(31)
-#                         wri_nd.knob('mov64_gop_size').setValue(12)
-#                         wri_nd.knob('mov64_b_frames').setValue(0)
-#                         wri_nd.knob('mov64_write_nclc').setValue(False)
-# 
-#                 print "INFO: Path for rendered Quicktime: %s" % qtmov_filepath
-#                 created_list.append(wri_nd)
-#                 write_list.append(wri_nd)
-# 
-#                 wri_vfx_nd = nuke.nodes.Write()
-#                 wri_vfx_nd.connectInput(0,cspi_nd)
-#                 wri_vfx_nd.knob('file').setValue(qtmov_filepath.replace(".mov", "_vfx.mov"))
-#                 wri_vfx_nd.knob('file_type').setValue('mov')
-#                 wri_vfx_nd.knob('colorspace').setValue('rec709')
-#                 wri_vfx_nd.knob('codec').setValue('jpeg')
-#                 if nuke.NUKE_VERSION_MAJOR <= 8:
-#                     wri_vfx_nd.knob('settings').setValue(
-#                         '0000000000000000000000000000019a7365616e0000000100000001000000000000018676696465000000010000000e00000000000000227370746c0000000100000000000000006a70656700000000001800000400000000207470726c000000010000000000000000000000000017f9db00000000000000246472617400000001000000000000000000000000000000530000010000000100000000156d70736f00000001000000000000000000000000186d66726100000001000000000000000000000000000000187073667200000001000000000000000000000000000000156266726100000001000000000000000000000000166d70657300000001000000000000000000000000002868617264000000010000000000000000000000000000000000000000000000000000000000000016656e647300000001000000000000000000000000001663666c67000000010000000000000000004400000018636d66720000000100000000000000006170706c00000014636c75740000000100000000000000000000001c766572730000000100000000000000000003001c00010000')
-#                     wri_vfx_nd.knob('Flatten').setValue(False)
-#                     wri_vfx_nd.knob('ycbcr_matrix_type').setValue('Rec 709')
-#                     wri_vfx_nd.knob('pixel_format').setValue(4)
-#                     wri_vfx_nd.knob('write_nclc').setValue(False)
-#                     wri_vfx_nd.knob('write_gamma').setValue(False)
-#                     wri_vfx_nd.knob('writeTimeCode').setValue(True)
-#                     wri_vfx_nd.knob('quality').setValue('High')
-#                 else:
-#                     if sys.platform == "linux2":
-#                         wri_vfx_nd.knob('mov64_format').setValue('mov (QuickTime / MOV)')
-#                         wri_vfx_nd.knob('mov64_codec').setValue('ap4h')
-#                         wri_vfx_nd.knob('mov64_fps').setValue(24)
-#                         wri_vfx_nd.knob('mov64_write_timecode').setValue(True)
-#                         wri_vfx_nd.knob('mov64_advanced').setValue(True)
-#                         wri_vfx_nd.knob('mov64_bitrate').setValue(20000)
-#                         wri_vfx_nd.knob('mov64_bitrate_tolerance').setValue(40000000)
-#                         wri_vfx_nd.knob('mov64_quality_min').setValue(2)
-#                         wri_vfx_nd.knob('mov64_quality_max').setValue(31)
-#                         wri_vfx_nd.knob('mov64_gop_size').setValue(12)
-#                         wri_vfx_nd.knob('mov64_b_frames').setValue(0)
-#                         wri_vfx_nd.knob('mov64_write_nclc').setValue(False)
-#                     else:
-#                         wri_vfx_nd.knob('meta_codec').setValue('jpeg')
-#                         wri_vfx_nd.knob('meta_encoder').setValue('mov32')
-#                         wri_vfx_nd.knob('mov32_quality').setValue('High')
-#                         wri_vfx_nd.knob('mov32_codec').setValue('jpeg')
-#                         wri_vfx_nd.knob('mov32_fps').setValue(24)
-#                         wri_vfx_nd.knob('mov32_settings').setValue(
-#                             '0000000000000000000000000000019a7365616e0000000100000001000000000000018676696465000000010000000e00000000000000227370746c0000000100000000000000006a70656700000000001800000400000000207470726c000000010000000000000000000000000017f9db00000000000000246472617400000001000000000000000000000000000000530000010000000100000000156d70736f00000001000000000000000000000000186d66726100000001000000000000000000000000000000187073667200000001000000000000000000000000000000156266726100000001000000000000000000000000166d70657300000001000000000000000000000000002868617264000000010000000000000000000000000000000000000000000000000000000000000016656e647300000001000000000000000000000000001663666c67000000010000000000000000004400000018636d66720000000100000000000000006170706c00000014636c75740000000100000000000000000000001c766572730000000100000000000000000003001c00010000')
-#                         wri_vfx_nd.knob('mov32_flatten').setValue(False)
-#                         wri_vfx_nd.knob('mov32_ycbcr_matrix_type').setValue('Rec 709')
-#                         wri_vfx_nd.knob('mov32_pixel_format').setValue(4)
-#                         wri_vfx_nd.knob('mov32_write_nclc').setValue(False)
-#                         wri_vfx_nd.knob('mov32_write_gamma').setValue(False)
-#                         wri_vfx_nd.knob('mov32_write_timecode').setValue(True)
-# 
-# 
-#                 created_list.append(wri_vfx_nd)
-#                 write_list.append(wri_vfx_nd)
-# 
-# 
-#             # create additional nodes for exr
-#             exr_filepath = ""
-# 
-#             if True:
-# 
-#                 exr_write_nd = nuke.nodes.Write()
-#                 created_list.append(exr_write_nd)
-# 
-# 
-# 
-# 
-# 
-#                 #reformat_exr_nd = nuke.nodes.Reformat()
-#                 #reformat_exr_nd.knob('format').setValue("Alexa 3K Open Gate (.a3kog)")
-# 
-#                 #reformat_exr_nd.connectInput(0, slate_nd_exr)
-#                 #created_list.append(reformat_exr_nd)
-# 
-#                 # exr file path
-#                 exr_filepath = '.'.join([os.path.splitext(render_path)[0].split('.')[0], '%04d', 'exr'])
-#                 exr_write_nd.knob('colorspace').setValue('linear')
-#                 exr_write_nd.knob('file').setValue(exr_filepath)
-# 
-#                 exr_write_nd.connectInput(0, slate_nd)
-#                 # are we working with an exr sequence? if so, only render the slate
-#                 src_ext = os.path.splitext(render_path)[-1]
-#                 if src_ext == '.exr':
-#                     nuke.execute(exr_write_nd, start_frame - 1, start_frame - 1)
-#                 else:
-#                     write_list.append(exr_write_nd)
-# 
-#             # execute the mofo
-# 
-# 
-#             nuke.execute(wri_nd, start_frame - 1, end_frame)
-# 
-#             xf_nd['disable'].setValue(True)
-#             crop_nd['disable'].setValue(True)
-#             refhd_nd['disable'].setValue(True)
-# 
-#             nuke.execute(wri_vfx_nd, start_frame - 1, end_frame)
-# 
-#             # destination file names
-# 
-#             dest_hires_root_dir = os.path.splitext(os.path.basename(qtmov_filepath))[0]
-#             dest_dpx_dir = os.path.join(dest_hires_root_dir, "2276x1474_AlexaV3LogC_DPX")
-#             dest_exr_dir = os.path.join(dest_hires_root_dir, "2156x1110_Linear_EXR")
-# 
-#             # generate the xml file
-#             new_submission = etree.Element('DailiesSubmission')
-#             sht_se = etree.SubElement(new_submission, 'Shot')
-#             sht_se.text = suspected_shot
-# 
-#             fname_se = etree.SubElement(new_submission, 'FileName')
-#             fname_se.text = os.path.basename(qtmov_filepath)
-#             if dpx_delivery:
-#                 dpx_fname_se = etree.SubElement(new_submission, 'DPXFileName')
-#                 dpx_fname_se.text = os.path.basename(dpx_filepath)
-#             if exr_delivery:
-#                 exr_fname_se = etree.SubElement(new_submission, 'EXRFileName')
-#                 exr_fname_se.text = os.path.basename(exr_filepath)
-#             sframe_se = etree.SubElement(new_submission, 'StartFrame')
-#             sframe_se.text = "%d" % (start_frame - 1)
-#             eframe_se = etree.SubElement(new_submission, 'EndFrame')
-#             eframe_se.text = "%d" % end_frame
-#             stc_se = etree.SubElement(new_submission, 'StartTimeCode')
-#             stc_se.text = "%s" % slate_frame_tc
-#             etc_se = etree.SubElement(new_submission, 'EndTimeCode')
-#             etc_se.text = "%s" % last_frame_tc
-#             artist_se = etree.SubElement(new_submission, 'Artist')
-#             artist_se.text = artist_name
-#             notes_se = etree.SubElement(new_submission, 'SubmissionNotes')
-#             notes_se.text = cvn_txt
-#             pv_se = etree.SubElement(new_submission, 'PreviousVersion')
-#             pv_se.text = pvns_txt
-#             pvn_se = etree.SubElement(new_submission, 'PreviousVersionNotes')
-#             pvn_se.text = pvns_notes_txt
-# 
-#             hours_se = etree.SubElement(new_submission,'Hours')
-#             hours_se.text = str(hours)
-# 
-#             # write out xml file to disk
-# 
-#             prettyxml = minidom.parseString(etree.tostring(new_submission)).toprettyxml(indent="  ")
-#             xml_ds = open(xml_filepath, 'w')
-#             xml_ds.write(prettyxml)
-#             xml_ds.close()
-# 
-#             # delete extra created nodes
-#             for nd_del in created_list:
-#                 nuke.delete(nd_del)
-#             del created_list[:]
-#             task = nuke.ProgressTask("Delivering Files")
-# 
-#             dest_delivery = get_delivery_directory(render_path)
-#             print "INFO: Copying Quicktime and XML file to: %s" % dest_delivery
-#             dest_delivery_avid = os.path.join(dest_delivery, "_avid")
-#             dest_delivery_vfx = os.path.join(dest_delivery, "_vfx")
-#             if not os.path.exists(dest_delivery_avid):
-#                 os.makedirs(dest_delivery_avid)
-#             if not os.path.exists(dest_delivery_vfx):
-#                 os.makedirs(dest_delivery_vfx)
-#             if qt_delivery:
-#                 qt_avid_filepath=os.path.join(dest_delivery_avid, os.path.basename(qtmov_filepath))
-#                 qt_vfx_filepath=os.path.join(dest_delivery_vfx, os.path.basename(qtmov_filepath.replace('.mov', "_vfx.mov")))
-#                 if os.path.exists(qt_avid_filepath):
-#                     os.remove(qt_avid_filepath)
-#                 if os.path.exists(qt_vfx_filepath):
-#                     os.remove(qt_vfx_filepath)
-#                 task.setMessage('Copying Avid Quicktime...')
-#                 task.setProgress(1)
-#                 try:
-#                     os.link(qtmov_filepath, qt_avid_filepath)
-#                 except:
-#                     nuke.critical(str(sys.exc_info()[1]))
-#                     break
-#                 task.setMessage('Copying VFX Quicktime...')
-#                 task.setProgress(51)
-#                 try:
-#                     os.link(qtmov_filepath.replace(".mov", "_vfx.mov"), qt_vfx_filepath)
-#                 except:
-#                     nuke.critical(str(sys.exc_info()[1]))
-#                     break
-#                 task.setProgress(100)
-# 
-#             shutil.copyfile(xml_filepath, os.path.join(dest_delivery, os.path.basename(xml_filepath)))
-# 
-#             # Copy DPX frames, if necessary
-#             if dpx_delivery:
-#                 dpx_dest_fulldir = os.path.join(dest_delivery, dest_dpx_dir)
-#                 if not os.path.exists(dpx_dest_fulldir):
-#                     os.makedirs(dpx_dest_fulldir)
-#                 print "INFO: Copying DPX Frames to: %s" % dpx_dest_fulldir
-#                 dpxfiles = glob.glob(os.path.join(os.path.dirname(render_path), r'*.dpx'))
-#                 task.setMessage("DPX frames")
-#                 for count, dpxfile in enumerate(dpxfiles):
-#                     shutil.copy(dpxfile, dpx_dest_fulldir)
-# 
-#                     task.setProgress(int((float(count) / float(len(dpxfiles)) * 100)))
-# 
-#             # Copy EXR frames, if necessary
-#             if exr_delivery:
-#                 exr_dest_fulldir = os.path.join(dest_delivery, dest_exr_dir)
-#                 if os.path.exists(exr_dest_fulldir):
-#                     shutil.rmtree(exr_dest_fulldir)
-#                     os.makedirs(exr_dest_fulldir)
-#                 else:
-#                     os.makedirs(exr_dest_fulldir)
-#                 print "INFO: Copying EXR Frames to: %s" % exr_dest_fulldir
-#                 task.setMessage("EXR frames")
-#                 # threading.Thread(None,copyFiles,args=(render_path,exr_dest_fulldir)).start()
-#                 exrfiles = glob.glob(os.path.join(os.path.dirname(render_path), r'*.exr'))
-#                 for count, exrfile in enumerate(exrfiles):
-#                     try:
-#                         os.link(exrfile, os.path.join(exr_dest_fulldir,os.path.basename(exrfile)))
-#                         task.setProgress(int((float(count) / float(len(exrfiles)) * 100)))
-#                     except:
-#                         nuke.critical(str(sys.exc_info()[1]))
-#                         break
-# 
-#         # delete the progress bar object
-#         del task
-# 
-#         for all_nd in nuke.allNodes():
-#             if all_nd in oglist:
-#                 all_nd.knob('selected').setValue(True)
-#             else:
-#                 all_nd.knob('selected').setValue(False)
-
-
-import subprocess
-
-
-# function to execute package code from within a separate thread
+# The next two methods are designed to package Nuke scripts for stereo conversion.
+# The first is designed to run in a separate thread so that it will not lock up the interface.
+# The next should be referenced from within menu.py
 
 def package_execute_threaded(s_nuke_script_path):
-    # hard coded Nuke executable path, because we're classy like that
+
     progress_bar = nuke.ProgressTask("Packaging Script")
     progress_bar.setMessage("Initializing...")
     progress_bar.setProgress(0)
-
     
-    s_nuke_exe_path = nuke.env['ExecutablePath']  # "/Applications/Nuke9.0v4/Nuke9.0v4.app/Contents/MacOS/Nuke9.0v4"
-    s_pyscript = "/Volumes/monovfx/inhouse/zmonolith/SHARED/lib/nuke/nuke_pipeline/package_script.py"
+    s_nuke_exe_path = nuke.env['ExecutablePath']
+    # package_script.py has NOT been cleaned of show-specific code and hard-coded paths. 
+    # To-Do as of 2016-10-28.
+    s_pyscript = os.path.join(os.path.dirname(os.environ['IH_SHOW_ROOT']), "SHARED", "lib", "nuke", "nuke_pipeline", "package_script.py")
 
     s_cmd = "%s -i -V 2 -t %s %s" % (s_nuke_exe_path, s_pyscript, s_nuke_script_path)
     s_err_ar = []
@@ -1074,12 +528,16 @@ def backdropColorOCD():
         hue_start += hue_inc
         
 def build_cc_nodes():
-    show_root = "/Volumes/monovfx/inhouse/zmonolith"
-    if sys.platform == "win32":
-        show_root = "Y:\\zmonolith"
-    show_lut = os.path.join(show_root, "SHARED", "lut", "AlexaV3_K1S1_LogC2Video_EE_davinci3d_Profile_To_Rec709_2-4_G1_Og1_P1_Lum.cube")
-    shot_re = re.compile(r'[A-Za-z]{3}[0-9]{4}')
-    seq_re = re.compile(r'[A-Za-z]{3}')
+    show_root = os.environ['IH_SHOW_ROOT']
+    config = ConfigParser.ConfigParser()
+    config.read(os.environ['IH_SHOW_CFG_PATH'])
+    cfg_shot_regexp = config.get(os.environ['IH_SHOW_CODE'], 'shot_regexp')
+    cfg_sequence_regexp = config.get(os.environ['IH_SHOW_CODE'], 'sequence_regexp')
+    cfg_lut = config.get(os.environ['IH_SHOW_CODE'], 'lut')
+
+    show_lut = os.path.join(show_root, "SHARED", "lut", cfg_lut)
+    shot_re = re.compile(cfg_shot_regexp)
+    seq_re = re.compile(cfg_seq_regexp)
     active_node = nuke.selectedNode()
     if active_node == None:
         nuke.critical("Please select either a Read or a Write node.")
