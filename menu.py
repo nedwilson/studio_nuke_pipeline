@@ -65,6 +65,7 @@ n.addCommand("Roto/RotoShapes To Trackers", "RotoShapes_to_trackers.RotoShape_to
 n.addCommand("Quick Label", "quickLabel()", "ctrl+alt+N")
 n.addCommand("OpticalFlare Auto Multitrack", "vclf_multi_autotrack()")
 n.addCommand("Build CC Nodes", "build_cc_nodes()", "alt+c")
+n.addCommand("Open Count Sheet", "open_count_sheet()")
 
 # Swap out the default version up functionality with a method that makes the directory
 # stored in the Write node.

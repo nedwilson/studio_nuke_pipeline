@@ -17,6 +17,8 @@ import sys
 import pwd
 import ConfigParser
 from operator import itemgetter
+import time
+from stat import S_ISREG, S_ISDIR, ST_MTIME, ST_MODE
 
 def quickLabel():
     sel = nuke.selectedNodes()[0]
@@ -574,4 +576,55 @@ def build_cc_nodes():
     nd_cs2 = nuke.nodes.OCIOColorSpace()
     nd_cs2.knob("in_colorspace").setValue("rec709")
     nd_cs2.connectInput(0, nd_lut)
+
+# method opens a count sheet for a shot.
+# requires the following:
+# * environment variable IH_SHOW_ROOT is defined
+# * Nuke has an open script, which has txt_ih_seq and txt_ih_shot defined in the root
+# * count sheets must be placed inside a shot folder in the data/count_sheet subfolder
+    
+def open_count_sheet():
+
+    # method variables
+    s_show_root = None
+    s_seq = None
+    s_shot = None
+    
+    # determine if we have a valid IH pipeline script open, and we are being executed within the IH pipeline.
+    # basically, the environment variable IH_SHOW_ROOT must be defined, and the Nuke script must have txt_ih_seq
+    # and txt_ih_shot defined in the root.
+    try:
+        s_show_root = os.environ['IH_SHOW_ROOT']
+        s_seq = nuke.root().knob('txt_ih_seq').value()
+        s_shot = nuke.root().knob('txt_ih_shot').value()
+    except:
+        nuke.critical('Method open_count_sheet() must be run while an In-House Nuke script is loaded.')
+        return
+    
+    # build the count sheet directory based on values in the Nuke script and the system environment
+    s_count_sheet_dir = os.path.join(s_show_root, s_seq, s_shot, "data", "count_sheet")
+    print "INFO: Likely count sheet directory: %s"%s_count_sheet_dir
+    if not os.path.exists(s_count_sheet_dir):
+        nuke.critical("Count sheet directory at %s does not exist!"%s_count_sheet_dir)
+        return
+        
+    # get all pdf files in the count sheet directory w/ modification times, sort by modification time descending
+    l_countsheets = [os.path.join(s_count_sheet_dir, fn) for fn in os.listdir(s_count_sheet_dir) if fn.endswith('.pdf')]
+    l_counts_mtimes = [(os.stat(path)[ST_MTIME], path) for path in l_countsheets]
+    l_counts_mtimes_sorted = sorted(l_counts_mtimes)
+    
+    # return the latest count sheet, based on file modification time
+    s_latest_count_sheet = l_counts_mtimes_sorted[-1][1]
+    print "INFO: Latest count sheet appears to be %s."%s_latest_count_sheet
+
+    # finally, call the platform-specific method to open and display a count sheet in the GUI
+    if sys.platform == "darwin":
+        subprocess.Popen(["/usr/bin/open", s_latest_count_sheet])
+    elif sys.platform == "linux2":
+        subprocess.Popen(["/usr/bin/xdg-open", s_latest_count_sheet])
+    else:
+        subprocess.Popen(["START", "Count Sheet for shot %s"%s_shot, s_latest_count_sheet])
+
+    
+    
 
